@@ -113,7 +113,14 @@ timer () {
 	elif [ -n "$STY" ]; then
 		screen -S "$session" -X screen pomo alert
 	else
-		pomo alert
+		# TODO: Probably quite a few holes here.
+		case "$term" in
+			xterm*) term=$(command -v xterm) ;;
+			rxvt*) term=$(command -v rxvt) ;;
+			*) term=$(command -v x-terminal-emulator) ;;
+		esac
+
+		exec "$term" pomo alert
 	fi
 
 	rm -r "$log_dir"
