@@ -11,70 +11,134 @@
 
 # Info about disowning a subprocess: https://stackoverflow.com/a/20338327
 
-usage () {
+usage() {
 	echo 'usage: pomo [ start <min>[m[<sec>s]] | stop | reset | resume ]'
 	exit
 } >&2
 
-# Ansi color escapes:
-# https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
-alert () {
+clear_screen() {
+	printf '\e[H\e[2J'
+}
+
+print_msg() {
+	# Move cursor to first cell of printing area.
+	printf '\e[%s;%sH' $y0 $x0
+
+	for char in "$B" "$R" "$E" "$A" "$K"; do
+		printf '%s' "$char"
+		printf '\e[2C\e[5A' # cursor right 2 up 5
+	done
+
+	# move cursor up <char_height> and right 2, to start of next
+	# char.
+
+	for char in "$T" "$I" "$M" "$E"; do
+		printf '%s' "$char"
+	done
+}
+
+unrec() {
+	printf 'not recognised: %s\n' "$reply"
+}
+
+alert() {
 	read -r lines cols <<-EOF
 		$(stty size)
 	EOF
 
-	x=$((cols / 2 - 15))
-	y=$((lines / 2 - 6))
-	w=$(printf '\e[7m')
-	c=$(printf '\e[0m')
+	x0=$((cols / 2 - 15))
+	y0=$((lines / 2 - 6))
 
-	C=' '
+	x=$x0
+	y=$y0
+
+	w=$(printf '\e[7m') # standout mode
+	c=$(printf '\e[0m') # clear
+	r=$(printf '\e[1B\e[5D') # cursor down 1 left 5
+
+	X=' '
 	pomo_emoji='🍅'
 
-	# Position cursor at start of new line (in centre of screen).
-	next () {
-		printf '\e[%s;%sH' "$y" "$x"
-		y=$((y + 1))
-	}
+	# Printing starts at top left ends at bottom right.
+	# '${r}' moves down 1 left 5
+	# All letters are 6 * 6 cells
+	# All cells must be filled (using leading/trailing spaces if nec.)
+	# for '${r}' escape to work.
+	B=$(
+		printf '%s' \
+		"${w}${X}${X}${X}${X}${c}${r} " \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${X}${X}${X}${c}${r} " \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${X}${X}${X}${c} "
+	)
 
-	print () {
-		next
-		echo "$*"
-	}
+	R=$(
+		printf '%s' \
+		"${w}${X}${X}${X}${X}${c}${r} " \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${X}${X}${X}${c}${r} " \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}"
+	)
 
-	unrec () {
-		next
-		printf 'not recognised: %s\n' "$reply"
-	}
+	E=$(
+		printf '%s' \
+		"${w}${X}${X}${X}${X}${X}${c}${r}" \
+		"${w}${X}${c}${r}    " \
+		"${w}${X}${X}${X}${X}${c}${r} " \
+		"${w}${X}${c}${r}    " \
+		"${w}${X}${X}${X}${X}${X}${c}"
+	)
 
-	# TODO: This is ugly!
-	# ###  ###  #####  ###  #   #
-	# #  # #  # #     #   # #  #
-	# ###  ###  ####  ##### ###
-	# #  # #  # #     #   # #  #
-	# ###  #  # ##### #   # #   #
-	#
-	#   ##### # #   # ##### #
-	#     #   # ## ## #     #
-	#     #   # # # # ####  #
-	#     #   # #   # #
-	#     #   # #   # ##### #
-	#
-	printf '\e[H\e[2J'
-	print "$w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$C$c  $w$C$C$C$c  $w$C$c   $w$C$c"
-	print "$w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c     $w$C$c   $w$C$c $w$C$c  $w$C$c"
-	print "$w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$C$c $w$C$C$C$c"
-	print "$w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c     $w$C$c   $w$C$c $w$C$c  $w$C$c"
-	print "$w$C$C$C$C$c  $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c   $w$C$c $w$C$c   $w$C$c"
-	y=$((y + 1))
-	print "    $w$C$C$C$C$C$c $w$C$c $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c"
-	print "      $w$C$c   $w$C$c $w$C$C$c $w$C$C$c $w$C$c     $w$C$c"
-	print "      $w$C$c   $w$C$c $w$C$c $w$C$c $w$C$c $w$C$C$C$C$c  $w$C$c"
-	print "      $w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c"
-	print "      $w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c"
-	y=$((y + 1))
+	A=$(
+		printf '%s' \
+		" ${w}${X}${X}${X}${r} " \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${X}${X}${X}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}" \
+	)
 
-	while next; printf '%s Restart timer? [Y/n] ' "$pomo_emoji"; do
+	K=$(
+		printf '%s' \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${c}  ${w}${X}${c}${r}" \
+		"${w}${X}${X}${X}${c}${r}" \
+		"${w}${X}${c}  ${w}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}"
+	)
+
+	T=$(
+		printf '%s' \
+		"    ${w}${X}${X}${X}${X}${X}${c}${r}" \
+		"      ${w}${X}${c}${r}" \
+		"      ${w}${X}${c}${r}" \
+		"      ${w}${X}${c}${r}" \
+		"      ${w}${X}${c}"
+	)
+
+	I=$(
+		printf '%s' \
+		"${w}${X}${c}${r}" \
+		"${w}${X}${c}${r}" \
+		"${w}${X}${c}${r}" \
+		"${w}${X}${c}${r}" \
+		"${w}${X}${c}"
+	)
+
+	M=$(
+		printf '%s' \
+		" ${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${X}${c} ${w}${X}${X}${c}${r}" \
+		"${w}${X}${c} ${w}${X}${c} ${w}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}${r}" \
+		"${w}${X}${c}   ${w}${X}${c}"
+	)
+
+	print_msg
+
+	while new_line; printf '%s Restart timer? [Y/n] ' "$pomo_emoji"; do
 		read -r reply
 		case "$reply" in
 			[Yy]|[Yy]es|"") pomo start 25m ;;
@@ -85,11 +149,11 @@ alert () {
 	done
 }
 
-is_running () {
+is_running() {
 	[[ -e $pid_log ]]
 }
 
-check () {
+check() {
 	local T
 	[[ -e $time_log ]] && T="$(<"$time_log")"
 
@@ -102,7 +166,7 @@ check () {
 	fi
 }
 
-timer () {
+timer() {
 	local time="$1" session="$2"
 
 	[[ -d $log_dir ]] || mkdir "$log_dir"
@@ -133,7 +197,7 @@ timer () {
 	stop
 }
 
-start () {
+start() {
 	local seconds minutes time regex session
 	time="${1:-25m}"
 
@@ -164,23 +228,21 @@ start () {
 	fi
 }
 
-stop () {
+stop() {
 	is_running && kill "$(<"$pid_log")"
 	rm "$pid_log"
 	check
 }
 
-reset () {
+reset() {
 	rm -r "$log_dir" 2>/dev/null
 }
 
-resume () {
+resume() {
 	start "$(<"$time_log")s"
 }
 
-main ()
-{
-	parent=/proc/$PPID/fd/0
+main() {
 	log_dir=/tmp/pomo
 	time_log="${log_dir}/time"
 	pid_log="${log_dir}/pid"
