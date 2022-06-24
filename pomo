@@ -5,9 +5,11 @@
 # Depends: `tput`, `rm`, `mkdir`, `screen`/`tmux`
 # Environment: none
 #
-# TODO: Abstract alert function into script which prints an arbitrary message
-#       to the screen.
 # TODO: Alert function makes a mess if it executes while in insert mode in `vi`
+# TODO: Remove dependencies: tput, screen, tmux. Add: setsid / nohup / script?
+# TODO: De-bashify and POSIX-ulate (ANSI escapes instead of tput)
+
+# Info about disowning a subprocess: https://stackoverflow.com/a/20338327
 
 usage () {
 	echo 'usage: pomo [ start <min>[m[<sec>s]] | stop | reset | resume ]'
