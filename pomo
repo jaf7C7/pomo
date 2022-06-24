@@ -16,14 +16,23 @@ usage () {
 	exit
 } >&2
 
+# Ansi color escapes:
+# https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 alert () {
-	x=$(($(tput cols) / 2 - 15))
-	y=$(($(tput lines) / 2 - 6))
-	w=$(tput smso)
-	c=$(tput rmso)
+	read -r lines cols <<-EOF
+		$(stty size)
+	EOF
+
+	x=$((cols / 2 - 15))
+	y=$((lines / 2 - 6))
+	w=$(printf '\e[7m')
+	c=$(printf '\e[0m')
+
+	C=' '
+	pomo_emoji='🍅'
 
 	next () {
-		tput cup "$y" "$x"
+		printf '\e[%s;%sH' "$y" "$x"
 		y=$((y + 1))
 	}
 
@@ -42,7 +51,7 @@ alert () {
 	#     #   # # # # ####  #
 	#     #   # #   # #
 	#     #   # #   # ##### #
-	tput clear
+	printf '\e[H\e[2J'
 	next
 	echo "$w    $c  $w    $c  $w     $c  $w   $c  $w $c   $w $c"
 	next
