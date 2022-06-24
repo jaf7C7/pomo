@@ -154,7 +154,7 @@ start () {
 		(( $? < 11 )) && screen -c/dev/null -dmS pomodoro \
 			pomo timer "$time" "$session"
 	else
-		pomo timer "$time" &
+		( pomo timer "$time" & )
 	fi
 }
 
