@@ -31,9 +31,15 @@ alert () {
 	C=' '
 	pomo_emoji='🍅'
 
+	# Position cursor at start of new line (in centre of screen).
 	next () {
 		printf '\e[%s;%sH' "$y" "$x"
 		y=$((y + 1))
+	}
+
+	print () {
+		next
+		echo "$*"
 	}
 
 	unrec () {
@@ -41,48 +47,39 @@ alert () {
 		printf 'not recognised: %s\n' "$reply"
 	}
 
+	# TODO: This is ugly!
 	# ###  ###  #####  ###  #   #
 	# #  # #  # #     #   # #  #
 	# ###  ###  ####  ##### ###
 	# #  # #  # #     #   # #  #
 	# ###  #  # ##### #   # #   #
+	#
 	#   ##### # #   # ##### #
 	#     #   # ## ## #     #
 	#     #   # # # # ####  #
 	#     #   # #   # #
 	#     #   # #   # ##### #
+	#
 	printf '\e[H\e[2J'
-	next
-	echo "$w    $c  $w    $c  $w     $c  $w   $c  $w $c   $w $c"
-	next
-	echo "$w $c   $w $c $w $c   $w $c $w $c     $w $c   $w $c $w $c  $w $c"
-	next
-	echo "$w    $c  $w    $c  $w    $c  $w     $c $w   $c"
-	next
-	echo "$w $c   $w $c $w $c   $w $c $w $c     $w $c   $w $c $w $c  $w $c"
-	next
-	echo "$w    $c  $w $c   $w $c $w     $c $w $c   $w $c $w $c   $w $c"
+	print "$w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$C$c  $w$C$C$C$c  $w$C$c   $w$C$c"
+	print "$w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c     $w$C$c   $w$C$c $w$C$c  $w$C$c"
+	print "$w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$c  $w$C$C$C$C$C$c $w$C$C$C$c"
+	print "$w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c     $w$C$c   $w$C$c $w$C$c  $w$C$c"
+	print "$w$C$C$C$C$c  $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c   $w$C$c $w$C$c   $w$C$c"
 	y=$((y + 1))
-	next
-	echo "    $w     $c $w $c $w $c   $w $c $w     $c $w $c"
-	next
-	echo "      $w $c   $w $c $w  $c $w  $c $w $c     $w $c"
-	next
-	echo "      $w $c   $w $c $w $c $w $c $w $c $w    $c  $w $c"
-	next
-	echo "      $w $c   $w $c $w $c   $w $c $w $c"
-	next
-	echo "      $w $c   $w $c $w $c   $w $c $w     $c $w $c"
+	print "    $w$C$C$C$C$C$c $w$C$c $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c"
+	print "      $w$C$c   $w$C$c $w$C$C$c $w$C$C$c $w$C$c     $w$C$c"
+	print "      $w$C$c   $w$C$c $w$C$c $w$C$c $w$C$c $w$C$C$C$C$c  $w$C$c"
+	print "      $w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$c"
+	print "      $w$C$c   $w$C$c $w$C$c   $w$C$c $w$C$C$C$C$C$c $w$C$c"
 	y=$((y + 1))
 
-	while :; do
-		next
-		printf 'Restart timer? [Y/n] '
+	while next; printf '%s Restart timer? [Y/n] ' "$pomo_emoji"; do
 		read -r reply
 		case "$reply" in
 			[Yy]|[Yy]es|"") pomo start 25m ;;
 			[Nn]|[Nn]o) : ;;
-			*) continue ;;
+			*) next; printf '?\n'; continue ;;
 		esac
 		break
 	done
