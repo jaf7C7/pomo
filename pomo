@@ -16,71 +16,75 @@ usage() {
 	exit
 } >&2
 
-clear_screen() {
-	printf '\e[H\e[2J'
+clear() {
+	printf '\033[H\033[2J'
 }
-
-print_msg() {
-	# Move cursor to first cell of printing area.
-	printf '\e[%s;%sH' $y0 $x0
-
-	for char in "$B" "$R" "$E" "$A" "$K"; do
-		printf '%s' "$char"
-		printf '\e[2C\e[5A' # cursor right 2 up 5
-	done
-
-	# move cursor up <char_height> and right 2, to start of next
-	# char.
-
-	for char in "$T" "$I" "$M" "$E"; do
-		printf '%s' "$char"
-	done
-}
-
-unrec() {
-	printf 'not recognised: %s\n' "$reply"
+ 
+cursor_pos() {
+	# lines columns (y, x)
+	printf '\033[%s;%sH' $1 $2
 }
 
 alert() {
+	# TODO:
+	# 1. char_print function which takes start $lines $cols
+	# 	1. "private" $_lines $_cols
+	# 	1. save cursor top left of char (0,0)
+	# 	1. print line
+	# 	1. cursor to x0
+	# 	[...]
+	# 	1. return cursor to 0,0
+	# 1. function wrapping char_print to set starting pos. for each letter
+	# 	1. cursor to start point $lines $cols
+	# 	1. for <char_in_line...>; do
+	# 		1. print_char
+	# 		1. new start point $lines $cols
+	# 		[...]
+	# 	1. new line $lines $cols
+	# 	1. for <char_in_line...>; do
+	# 		1. print_char
+	# 		1. new start point $lines $cols
+	# 		[...]
+
 	read -r lines cols <<-EOF
 		$(stty size)
 	EOF
 
-	x0=$((cols / 2 - 15))
-	y0=$((lines / 2 - 6))
-
-	x=$x0
-	y=$y0
-
-	w=$(printf '\e[7m') # standout mode
-	c=$(printf '\e[0m') # clear
-	r=$(printf '\e[1B\e[5D') # cursor down 1 left 5
+	x0=$((cols / 2 - 15)) y0=$((lines / 2 - 6))
+	x=$x0 y=$y0
 
 	X=' '
+	w=$(printf '\033[7m') # standout mode
+	c=$(printf '\033[0m') # standout clear
+	r=$(printf '\033[1B\033[5D') # cursor down 1, left 5
+	start=$(printf '\033[s') # save cursor
+	end=$(printf '\033[u\033[6C') # restore cursor, cursor right 6
+
 	pomo_emoji='🍅'
 
-	# Printing starts at top left ends at bottom right.
-	# '${r}' moves down 1 left 5
-	# All letters are 6 * 6 cells
-	# All cells must be filled (using leading/trailing spaces if nec.)
-	# for '${r}' escape to work.
-	B=$(
-		printf '%s' \
-		"${w}${X}${X}${X}${X}${c}${r} " \
-		"${w}${X}${c}   ${w}${X}${c}${r}" \
-		"${w}${X}${X}${X}${X}${c}${r} " \
-		"${w}${X}${c}   ${w}${X}${c}${r}" \
-		"${w}${X}${X}${X}${X}${c} "
-	)
+	read -r B <<EOF
+${start}${w}${X}${X}${X}${X}${c} ${r}\
+${w}${X}${c}   ${w}${X}${c}${r}\
+${w}${X}${X}${X}${X}${c} ${r}\
+${w}${X}${c}   ${w}${X}${c}${r}\
+${w}${X}${X}${X}${X}${c}${end}
+EOF
 
-	R=$(
-		printf '%s' \
-		"${w}${X}${X}${X}${X}${c}${r} " \
-		"${w}${X}${c}   ${w}${X}${c}${r}" \
-		"${w}${X}${X}${X}${X}${c}${r} " \
-		"${w}${X}${c}   ${w}${X}${c}${r}" \
-		"${w}${X}${c}   ${w}${X}${c}"
-	)
+	read -r R <<EOF
+${start}${w}${X}${X}${X}${X}${c}${r} \
+${w}${X}${c}   ${w}${X}${c}${r}\
+${w}${X}${X}${X}${X}${c}${r} \
+${w}${X}${c}   ${w}${X}${c}${r}\
+${w}${X}${c}   ${w}${X}${c}${end}
+EOF
+
+	clear
+	cursor_pos "$y0" "$x0"
+	printf '%s' "${B}${R}"; read -r _ # debug
+	return # debug
+#---------------------------------------------------------------------- # BREAK
+
+	exit 1
 
 	E=$(
 		printf '%s' \
@@ -136,8 +140,6 @@ alert() {
 		"${w}${X}${c}   ${w}${X}${c}"
 	)
 
-	print_msg
-
 	while new_line; printf '%s Restart timer? [Y/n] ' "$pomo_emoji"; do
 		read -r reply
 		case "$reply" in
@@ -147,6 +149,10 @@ alert() {
 		esac
 		break
 	done
+}
+
+unrec() {
+	printf 'not recognised: %s\n' "$reply"
 }
 
 is_running() {
