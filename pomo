@@ -22,112 +22,134 @@ clear() {
  
 cursor_pos() {
 	# lines columns (y, x)
-	printf '\033[%s;%sH' $1 $2
+	printf '\033[%s;%sH' "$1" "$2"
+}
+
+nl() {
+	printf '\033[1B\033[%sD' "$1" # down 1, left '$1'
+}
+
+start() {
+	printf '\033[s' # save cursor
+}
+
+next() {
+	printf '\033[u\033[%sC' "$1" # restore cursor, right '$1'
+}
+
+print() {
+	clear
+	cursor_pos "$y0" "$x0"
+
+	for line do
+		printf '%s' "$line"
+
+		y=$((y + 7)) x=$((x + 4))
+
+		cursor_pos $y $x
+	done
 }
 
 alert() {
 	# TODO:
-	# 1. char_print function which takes start $lines $cols
-	# 	1. "private" $_lines $_cols
-	# 	1. save cursor top left of char (0,0)
-	# 	1. print line
-	# 	1. cursor to x0
-	# 	[...]
-	# 	1. return cursor to 0,0
-	# 1. function wrapping char_print to set starting pos. for each letter
-	# 	1. cursor to start point $lines $cols
-	# 	1. for <char_in_line...>; do
-	# 		1. print_char
-	# 		1. new start point $lines $cols
-	# 		[...]
-	# 	1. new line $lines $cols
-	# 	1. for <char_in_line...>; do
-	# 		1. print_char
-	# 		1. new start point $lines $cols
-	# 		[...]
+	# each char needs an individual `width` variable which is changed
+	# before each letter is generated. `${r}` and `$(next)` take `width`
+	# as a parameter for each letter.
 
 	read -r lines cols <<-EOF
 		$(stty size)
 	EOF
 
-	x0=$((cols / 2 - 15)) y0=$((lines / 2 - 6))
+	x0=$((cols / 2 - 17)) y0=$((lines / 2 - 6))
 	x=$x0 y=$y0
 
 	X=' '
 	w=$(printf '\033[7m') # standout mode
 	c=$(printf '\033[0m') # standout clear
-	r=$(printf '\033[1B\033[6D') # cursor down 1, left 6
-	start=$(printf '\033[s') # save cursor
-	end=$(printf '\033[u\033[7C') # restore cursor, cursor right 7
 	pomo_emoji='🍅'
 
+	width=6
+
 	read -r B <<EOF
-${start}${w}${X}${X}${X}${X}${X}${c} ${r}\
-${w}${X}${c}   ${w}${X}${X}${c}${r}\
-${w}${X}${X}${X}${X}${X}${c} ${r}\
-${w}${X}${c}   ${w}${X}${X}${c}${r}\
-${w}${X}${X}${X}${X}${X}${c}${end}
+$(start)\
+${w}${X}${X}${X}${X}${X}${c} $(nl "$width")\
+${w}${X}${c}   ${w}${X}${X}${c}$(nl "$width")\
+${w}${X}${X}${X}${X}${X}${c} $(nl "$width")\
+${w}${X}${c}   ${w}${X}${X}${c}$(nl "$width")\
+${w}${X}${X}${X}${X}${X}${c}\
+$(next "$width")
 EOF
 
 	read -r R <<EOF
-${start}${w}${X}${X}${X}${X}${X}${c} ${r}\
+$(start)\
+${w}${X}${X}${X}${X}${X}${c} ${r}\
 ${w}${X}${c}   ${w}${X}${X}${c}${r}\
 ${w}${X}${X}${X}${X}${X}${c} ${r}\
 ${w}${X}${c}   ${w}${X}${X}${c}${r}\
-${w}${X}${c}   ${w}${X}${X}${c}${end}
+${w}${X}${c}   ${w}${X}${X}${c}\
+$(next 7)
 EOF
+	
 	read -r E <<EOF
-${start}${w}${X}${X}${X}${X}${X}${X}${c}${r}\
+$(start)\
+${w}${X}${X}${X}${X}${X}${X}${c}${r}\
 ${w}${X}${c}     ${r}\
 ${w}${X}${X}${X}${X}${X}${c} ${r}\
 ${w}${X}${c}     ${r}\
-${w}${X}${X}${X}${X}${X}${X}${c}${end}
+${w}${X}${X}${X}${X}${X}${X}${c}\
+$(next 7)
 EOF
 
 	read -r A <<EOF
-${start} ${w}${X}${X}${X}${X}${c} ${r}\
+$(start)\
+ ${w}${X}${X}${X}${X}${c} ${r}\
 ${w}${X}${c}    ${w}${X}${c}${r}\
 ${w}${X}${X}${X}${X}${X}${X}${c}${r}\
 ${w}${X}${c}    ${w}${X}${c}${r}\
-${w}${X}${c}    ${w}${X}${c}${end}
+${w}${X}${c}    ${w}${X}${c}\
+$(next 7)
 EOF
 
 	read -r K <<EOF
-${start}${w}${X}${c}    ${w}${X}${c}${r}\
+$(start)\
+${w}${X}${c}    ${w}${X}${c}${r}\
 ${w}${X}${c}   ${w}${X}${X}${c}${r}\
 ${w}${X}${X}${X}${X}${X}${c} ${r}\
 ${w}${X}${c}   ${w}${X}${X}${c}${r}\
-${w}${X}${c}   ${w}${X}${X}${c}${end}
+${w}${X}${c}   ${w}${X}${X}${c}\
+$(next 7)
 EOF
 
 	read -r T <<EOF
-${start}    ${w}${X}${X}${X}${X}${X}${c} ${r}\
-      ${w}${X}${c} ${r}\
-      ${w}${X}${c} ${r}\
-      ${w}${X}${c} ${r}\
-      ${w}${X}${c}${end}
+$(start)\
+${w}${X}${X}${X}${X}${X}${X}${c}${r}\
+  ${w}${X}${X}${c}  ${r}\
+  ${w}${X}${X}${c}  ${r}\
+  ${w}${X}${X}${c}  ${r}\
+  ${w}${X}${X}${c}\
+$(next 7)
 EOF
-
 	read -r I <<EOF
-${start}${w}${X}${c} ${r}\
-${w}${X}${c} ${r}\
-${w}${X}${c} ${r}\
-${w}${X}${c} ${r}\
-${w}${X}${c}${end}
+$(start)\
+${w}${X}${X}${c} ${r}\
+ ${w}${X}${X}${c} ${r}\
+ ${w}${X}${X}${c} ${r}\
+ ${w}${X}${X}${c} ${r}\
+ ${w}${X}${X}${c}\
+$(next 2)
 EOF
 
 	read -r M <<EOF
-${start} ${w}${X}${c}   ${w}${X}${c} ${r}\
-${w}${X}${X}${c} ${w}${X}${X}${c} ${r}\
-${w}${X}${c} ${w}${X}${c} ${w}${X}${c} ${r}\
-${w}${X}${c}   ${w}${X}${c} ${r}\
-${w}${X}${c}   ${w}${X}${c}${end}
+$(start)\
+ ${w}${X}${X}${c}  ${w}${X}${X}${c}${r}\
+${w}${X}${X}${X}${X}${X}${X}${c}${r}\
+${w}${X}${c} ${w}${X}${X}${c} ${w}${X}${c}${r}\
+${w}${X}${c} ${w}${X}${X}${c} ${w}${X}${c}${r}\
+${w}${X}${c}    ${w}${X}${c}\
+$(next 7)
 EOF
 
-	clear
-	cursor_pos "$y0" "$x0"
-	printf '%s' "${B}${R}${E}${A}${K}"
-	#printf '%s' "${B}${R}${E}${A}${K}"
+	print "${B}${R}${E}${A}${K}" "${T}${I}${M}" #${E}"
 
 	read -r _ # debug
 #-------------------------------------------------------------------------BREAK
