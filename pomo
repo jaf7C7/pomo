@@ -10,6 +10,7 @@
 # TODO: De-bashify and POSIX-ulate (ANSI escapes instead of tput)
 
 # Info about disowning a subprocess: https://stackoverflow.com/a/20338327
+# ANSI escape codes: https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 
 usage() {
 	echo 'usage: pomo [ start <min>[m[<sec>s]] | stop | reset | resume ]'
