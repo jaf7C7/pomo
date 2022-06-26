@@ -32,14 +32,9 @@ alert() {
 	c=$(printf '\033[0m') # Default
 	pomo_emoji='🍅'
 
-	next() {
-		printf '\033[%s;%sH' "$y" "$x"
-		y=$((y + 1))
-	}
-
 	print() {
-		next
-		echo "$*"
+		printf '\033[%s;%sH%s' "$y" "$x" "$*"
+		y=$((y + 1))
 	}
 
 	# Not sexy but works
@@ -66,14 +61,11 @@ alert() {
 	print "      $w $c   $w $c $w $c   $w $c $w     $c $w $c"
 	y=$((y + 1))
 
-	while :; do
-		next
-		printf 'Restart timer? [Y/n] '
-		read -r reply
+	while print 'Restart timer? [Y/n] '; read -r reply; do
 		case "$reply" in
-			[Yy]|[Yy]es|"") pomo start 25m ;;
+			[Yy]|[Yy]es|'') start 25m ;;
 			[Nn]|[Nn]o) : ;;
-			*) continue ;;
+			*) print '?'; continue ;;
 		esac
 		break
 	done
@@ -84,14 +76,16 @@ is_running() {
 }
 
 check() {
-	[ -e "$time_log" ] && read -r T <"$time_log"
+	[ -e "$time_log" ] && read -r time <"$time_log"
 
 	if is_running; then
-		printf 'pomo: remaining: %02dm%02ds\n' $((T / 60)) $((T % 60))
-	elif [ -n "$T" ]; then
-		printf 'pomo: stopped: %02dm%02ds\n' $((T / 60)) $((T % 60))
+		printf 'pomo: remaining: %02dm%02ds\n' \
+			$((time / 60)) $((time % 60))
+	elif [ -n "$time" ]; then
+		printf 'pomo: stopped: %02dm%02ds\n' \
+			$((time / 60)) $((time % 60))
 	else
-		! printf 'pomo: no timer info available\n' >&2
+		error 'no timer info available'
 	fi
 }
 
@@ -135,7 +129,7 @@ start() {
 	esac
 
 	case ${min}${sec} in
-		*[!0-9]*|'') error "bad time format: $time" ;;
+		*[!0-9]*|'') error "bad time format: $time"
 	esac
 
 	time=$((${min:=0} * 60 + ${sec:=0}))
