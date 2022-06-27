@@ -2,24 +2,27 @@
 #
 # `pomo`: Simple pomodoro timer
 #
-# Depends: `rm`, `mkdir`, `screen`/`tmux`, `stty`
-# Environment: none
+# Dependencies:
+#	- POSIX `rm`
+#	- POSIX `stty`
+#	- POSIX `sleep`
+#	- One of: `xterm`|`(u)rxvt`|`x-terminal-emulator`|`screen`|`tmux`
+# Environment:
+#	- TMPDIR
 
-# TODO: De-bashify and POSIX-ulate (ANSI escapes instead of tput)
+exec 3>&2
 
-# Info about disowning a subprocess: https://stackoverflow.com/a/20338327
-# ANSI escape codes: https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+: "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
 usage() {
-	echo 'usage: pomo [ start <min>[m[<sec>s] | stop | reset | resume ]'
+	echo 'usage: pomo [ start <min>[m[<sec>s]] | pause | stop | resume ]'
 	exit
-} >&2
+} >&3
 
 error() {
-	printf '%s: ' "${0##*/}"
-	printf '%s\n' "$@"
+	printf '%s: %s\n' "${0##*/}" "$*"
 	exit 1
-} >&2
+} >&3
 
 alert() {
 	read -r lines cols <<-EOF
@@ -28,157 +31,181 @@ alert() {
 
 	x=$((cols / 2 - 15))
 	y=$((lines / 2 - 6))
-	w=$(printf '\033[7m') # Reverse
-	c=$(printf '\033[0m') # Default
-	pomo_emoji='🍅'
+
+	r=$(printf '\033[7m') # Reverse
+	c=$(printf '\033[0m') # Clear
 
 	print() {
-		printf '\033[%s;%sH%s' "$y" "$x" "$*"
-		y=$((y + 1))
+		for line do
+			# Position cursor and print line.
+			printf '\033[%s;%sH%s' "$y" "$x" "$line"
+			y=$((y + 1))
+		done
 	}
 
-	# Not sexy but works
 	# ###  ###  #####  ###  #   #
 	# #  # #  # #     #   # #  #
 	# ###  ###  ####  ##### ###
 	# #  # #  # #     #   # #  #
 	# ###  #  # ##### #   # #   #
+	print \
+	"$r    $c  $r    $c  $r     $c  $r   $c  $r $c   $r $c" \
+	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
+	"$r    $c  $r    $c  $r    $c  $r     $c $r   $c" \
+	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
+	"$r    $c  $r $c   $r $c $r     $c $r $c   $r $c $r $c   $r $c"
+	y=$((y + 1))
+
 	#   ##### # #   # ##### #
 	#     #   # ## ## #     #
 	#     #   # # # # ####  #
 	#     #   # #   # #
 	#     #   # #   # ##### #
-	print "$w    $c  $w    $c  $w     $c  $w   $c  $w $c   $w $c"
-	print "$w $c   $w $c $w $c   $w $c $w $c     $w $c   $w $c $w $c  $w $c"
-	print "$w    $c  $w    $c  $w    $c  $w     $c $w   $c"
-	print "$w $c   $w $c $w $c   $w $c $w $c     $w $c   $w $c $w $c  $w $c"
-	print "$w    $c  $w $c   $w $c $w     $c $w $c   $w $c $w $c   $w $c"
-	y=$((y + 1))
-	print "    $w     $c $w $c $w $c   $w $c $w     $c $w $c"
-	print "      $w $c   $w $c $w  $c $w  $c $w $c     $w $c"
-	print "      $w $c   $w $c $w $c $w $c $w $c $w    $c  $w $c"
-	print "      $w $c   $w $c $w $c   $w $c $w $c"
-	print "      $w $c   $w $c $w $c   $w $c $w     $c $w $c"
+	print \
+	"    $r     $c $r $c $r $c   $r $c $r     $c $r $c" \
+	"      $r $c   $r $c $r  $c $r  $c $r $c     $r $c" \
+	"      $r $c   $r $c $r $c $r $c $r $c $r    $c  $r $c" \
+	"      $r $c   $r $c $r $c   $r $c $r $c" \
+	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c"
 	y=$((y + 1))
 
-	while print 'Restart timer? [Y/n] '; read -r reply; do
+	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
 		case "$reply" in
-			[Yy]|[Yy]es|'') start 25m ;;
-			[Nn]|[Nn]o) : ;;
-			*) print '?'; continue ;;
+			[Yy]|[Yy]es|'') reply='25m' ;;
+			[Nn]|[Nn]o) return ;;
+			*[!0-9ms]*) continue ;;
 		esac
 		break
 	done
+
+	exec 2>/tmp/bat.$$.log # debug
+	echo "alert:" >&2 # debug
+	set -x # debug
+
+	pomo start "$reply"
 }
 
 is_running() {
-	[ -e "$pid_log" ]
-}
+	kill -0 "$1"
+} 2>/dev/null
 
 check() {
-	[ -e "$time_log" ] && read -r time <"$time_log"
+	[ -e "$log_file" ] || error 'no timer info available'
 
-	if is_running; then
-		printf 'pomo: remaining: %02dm%02ds\n' \
-			$((time / 60)) $((time % 60))
-	elif [ -n "$time" ]; then
-		printf 'pomo: stopped: %02dm%02ds\n' \
-			$((time / 60)) $((time % 60))
+	if ! is_running "$pid"; then
+		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
 	else
-		error 'no timer info available'
+		printf 'remaining: %02dm%02ds\n' $((time / 60)) $((time % 60))
 	fi
 }
 
+pause() {
+	kill "$pid" 2>/dev/null
+
+	# `kill` doesn't kill immediately and without this `check` prints
+	# the wrong message.
+	while is_running "$pid"; do
+		:
+	done
+
+	check
+}
+
+stop() {
+	kill "$pid" 2>/dev/null
+	[ -e "$log_file" ] && rm "$log_file"
+}
+
 timer() {
+	exec 2>/tmp/bat.$$.log # debug
+	echo "timer: $0 $@" >&2 # debug
+	set -x # debug
+
 	time="$1" session="$2"
 
-	[ -d "$log_dir" ] || mkdir "$log_dir"
-	printf '%s\n' $$ >"$pid_log"
-
 	while [ "$time" -gt 0 ]; do
-		printf '%s\n' "$time" >"$time_log"
+		printf '%s %s\n' $$ "$time" >"$log_file"
 		time=$((time - 1))
 		sleep 1
 	done
 
-	# TODO: Probably a few holes in this.
-	if [ -n "$TMUX" ]; then
-		tmux neww -t "$session" pomo alert
-	elif [ -n "$STY" ]; then
-		screen -S "$session" -X screen pomo alert
-	elif command -v xterm >/dev/null 2>&1; then
-		exec xterm -e pomo alert
-	elif command -v rxvt >/dev/null 2>&1; then
-		exec rxvt -e pomo alert
-	else
-		exec x-terminal-emulator -e pomo alert
-	fi
-
-	rm -r "$log_dir"
 	stop
+
+	# TODO: Probably a few holes in this.
+	if [ -n "$STY" ]; then
+		screen -S "$session" -X screen pomo alert
+	elif [ -n "$TMUX" ]; then
+		tmux neww -t "$session" pomo alert
+	elif command -v xterm >/dev/null 2>&1; then
+		xterm -e pomo alert
+	elif command -v rxvt >/dev/null 2>&1; then
+		rxvt -e pomo alert
+	else
+		x-terminal-emulator -e pomo alert
+	fi
 }
 
 start() {
-	time="${1:-25m}"
+	exec 2>/tmp/bat.$$.log # debug
+	echo "start: $0 $@" >&2 # debug
+	set -x # debug
+
+	is_running "$pid" && error 'already running'
+
+	# If `time` has already been read from the log file, it will be a
+	# number in seconds but without an 's' suffix. This adds the 's'
+	# back if it's missing. Otherwise we get an error below.
+	[ -n "${time##*s}" ] && time="${time}s"
+
+	: "${time:=${1:-25m}}"
 
 	case $time in
 		*m*s) min="${time%%m*}" sec="${time##*m}" sec="${sec%s}" ;;
 		*m) min="${time%%m*}" ;;
 		*s) sec="${time%s}" ;;
-		*) min="$time" ;;
 	esac
 
 	case ${min}${sec} in
 		*[!0-9]*|'') error "bad time format: $time"
 	esac
 
-	time=$((${min:=0} * 60 + ${sec:=0}))
+	time=$((min * 60 + sec))
 
-	if [ -n "$TMUX" ]; then
-		session="$(tmux display -p '#{session_id}')"
-		tmux new -ds pomodoro pomo timer "$time" "$session" 2>/dev/null
-	elif [ -n "$STY" ]; then
-		session="$STY"
-		screen -qlsS pomodoro
-		[ $? -lt 11 ] && screen -c/dev/null -dmS pomodoro \
-			pomo timer "$time" "$session"
-	else
-		( pomo timer "$time" & )
-	fi
-}
+	# Save the multiplexer session so the right session is targeted
+	# for the eventual alert.
+	[ -n "$STY" ] && session="$STY"
+	[ -n "$TMUX" ] && session=$(tmux display -pF '#{session_id}')
 
-stop() {
-	read -r pid <"$pid_log"
-	is_running && kill "$pid"
-	rm "$pid_log"
-	check
-}
-
-reset() {
-	rm -r "$log_dir" 2>/dev/null
-}
-
-resume() {
-	read -r time <"$time_log"
-	start "${time}s"
+	# See https://stackoverflow.com/a/20338327
+	#
+	# `(...)` starts a child process.
+	# `&` starts a grandchild process.
+	#
+	# The child process exits almost immediately and the
+	# grandchild process is orphaned.
+	#
+	# TODO: This doesn't work when executed from the 'alert' function, but
+	# it does work when you type 'pomo start'.
+	#( pomo timer "$time" "$session" & )
+	( screen -dmS pomodoro pomo timer "$time" "$session" & )
 }
 
 main() {
-	log_dir=/tmp/pomo
-	time_log="${log_dir}/time"
-	pid_log="${log_dir}/pid"
-
 	[ $# -gt 3 ] && usage
+
+	log_file="$TMPDIR/pomo.log"
+
+	[ -e "$log_file" ] && read -r pid time <"$log_file"
 
 	case $1 in
 		start) start "$2" ;;
+		pause) pause ;;
 		stop) stop ;;
-		reset) reset ;;
-		resume) resume ;;
 		timer) timer "$2" "$3" ;;
 		alert) shift; alert "$@";;
-		"") check ;;
-		-h|--help|*) usage ;;
+		'') check ;;
+		-h) usage ;;
+		*) ! usage ;;
 	esac
 }
 
