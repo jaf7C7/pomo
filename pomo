@@ -80,26 +80,26 @@ alert() {
 	# ###  ###  ####  ##### ###
 	# #  # #  # #     #   # #  #
 	# ###  #  # ##### #   # #   #
-	print \
-	"$r    $c  $r    $c  $r     $c  $r   $c  $r $c   $r $c" \
-	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
-	"$r    $c  $r    $c  $r    $c  $r     $c $r   $c" \
-	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
-	"$r    $c  $r $c   $r $c $r     $c $r $c   $r $c $r $c   $r $c"
-	y=$((y + 1))
-
+	#
 	#   ##### # #   # ##### #
 	#     #   # ## ## #     #
 	#     #   # # # # ####  #
 	#     #   # #   # #
 	#     #   # #   # ##### #
+	#
 	print \
+	"$r    $c  $r    $c  $r     $c  $r   $c  $r $c   $r $c" \
+	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
+	"$r    $c  $r    $c  $r    $c  $r     $c $r   $c" \
+	"$r $c   $r $c $r $c   $r $c $r $c     $r $c   $r $c $r $c  $r $c" \
+	"$r    $c  $r $c   $r $c $r     $c $r $c   $r $c $r $c   $r $c" \
+	"" \
 	"    $r     $c $r $c $r $c   $r $c $r     $c $r $c" \
 	"      $r $c   $r $c $r  $c $r  $c $r $c     $r $c" \
 	"      $r $c   $r $c $r $c $r $c $r $c $r    $c  $r $c" \
 	"      $r $c   $r $c $r $c   $r $c $r $c" \
-	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c"
-	y=$((y + 1))
+	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c" \
+	""
 
 	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
 		case "$reply" in
@@ -114,12 +114,14 @@ alert() {
 }
 
 timer() {
-	trap '' HUP
+	ps -p "$$" -o pid,ppid,pgid,tty,cmd >/tmp/log # debug
+	exec 2>/tmp/log # debug
+	#set -x # debug
 
 	time="$1" session="$2"
 
 	while [ "$time" -gt 0 ]; do
-		printf '%s %s\n' $$ "$time" >"$log_file"
+		printf '%s %s\n' "$$" "$time" >"$log_file"
 		time=$((time - 1))
 		sleep 1
 	done
@@ -170,17 +172,47 @@ start() {
 		session=$(tmux display -pF '#{session_id}')
 		tmux new -ds pomodoro pomo timer "$time" "$session"
 	else
-		# TODO: Explain why this only works when all file descriptors
-		# are closed and the HUP signal is ignored. Also, will fd 10
-		# be used on all systems or is it just Linux?
+		# TODO: This doesn't work.
 		#
 		# See:
 		# https://stackoverflow.com/a/20338327
 		# https://stackoverflow.com/a/46621604
 		# https://stackoverflow.com/a/3095624
+		# https://serverfault.com/a/312265
 		# https://serverfault.com/a/311602
-		( pomo timer "$time" >&- 2>&- <&- 10>&- & )
+		#
+		# NOTE: Apparently the `double fork` is "wrongheaded"
+		#
+		# See:
+		# https://unix.stackexchange.com/a/194208
+		# https://unix.stackexchange.com/a/177361
+		# https://web.archive.org/web/20160408151852/http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/unix-daemon-design-mistakes-to-avoid.html
+		(
+			exec 2>/tmp/log # debug
+			set -x # debug
+			pomo timer "$time" &
+			read -r _ # debug
+			# NOTE: at this point the timer (grandchild) has PPID
+			# of the child process (this subshell)
+		)
+		# NOTE: at this point the child has exited and the
+		# grandchild is adopted by systemd (PID != 1, see above
+		# links) and has the corresponding PPID of systemd. But
+		# its PGID (group leader) is still that of the calling
+		# terminal (the xterm window where the alert prompt was
+		# displayed)
 	fi
+
+	# NOTE: At this point there may be two timers running at the same
+	# time. Investigate further!
+
+	echo "calling xterm pid: $$" >/tmp/log # debug
+	read -r _ # debug
+	exit 0 # debug
+
+	# NOTE: After this function returns, the xterm exits, and the
+	# grandchild, whose process group leader has died, also dies. So
+	# its the PGID we need to change.
 }
 
 main() {
