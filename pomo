@@ -114,6 +114,8 @@ alert() {
 }
 
 timer() {
+	trap '' HUP
+
 	time="$1" session="$2"
 
 	while [ "$time" -gt 0 ]; do
@@ -136,7 +138,7 @@ timer() {
 		rxvt -e pomo alert
 	else
 		x-terminal-emulator -e pomo alert
-	fi
+	fi 2>/dev/null
 }
 
 start() {
@@ -168,12 +170,16 @@ start() {
 		session=$(tmux display -pF '#{session_id}')
 		tmux new -ds pomodoro pomo timer "$time" "$session"
 	else
-		# TODO: This doesn't work as intended: When called from
-		# the alert function the grandchild process doesn't fork
-		# properly and exits. `setsid` and `nohup` also don't work.
+		# TODO: Explain why this only works when all file descriptors
+		# are closed and the HUP signal is ignored. Also, will fd 10
+		# be used on all systems or is it just Linux?
 		#
-		# See https://stackoverflow.com/a/20338327
-		( pomo timer "$time" & )
+		# See:
+		# https://stackoverflow.com/a/20338327
+		# https://stackoverflow.com/a/46621604
+		# https://stackoverflow.com/a/3095624
+		# https://serverfault.com/a/311602
+		( pomo timer "$time" >&- 2>&- <&- 10>&- & )
 	fi
 }
 
