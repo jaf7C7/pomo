@@ -6,23 +6,55 @@
 #	- POSIX `rm`
 #	- POSIX `stty`
 #	- POSIX `sleep`
-#	- One of: `xterm`|`(u)rxvt`|`x-terminal-emulator`|`screen`|`tmux`
+#	- `screen` or `tmux`
+#	- `xterm`|`(u)rxvt`|`x-terminal-emulator` (work in progress)
 # Environment:
 #	- TMPDIR
-
-exec 3>&2
 
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
 usage() {
 	echo 'usage: pomo [ start <min>[m[<sec>s]] | pause | stop | resume ]'
 	exit
-} >&3
+} >&2
 
 error() {
 	printf '%s: %s\n' "${0##*/}" "$*"
 	exit 1
-} >&3
+} >&2
+
+is_running() {
+	kill -0 "$1"
+} 2>/dev/null
+
+stop() {
+	kill "$pid" 2>/dev/null
+	[ -e "$log_file" ] && rm "$log_file"
+}
+
+pause() {
+	kill "$pid" 2>/dev/null
+
+	# TODO: Is there a better way? This seems clumsy.
+	#
+	# `kill` doesn't kill immediately and without this `check` prints
+	# the wrong message.
+	while is_running "$pid"; do
+		:
+	done
+
+	check
+}
+
+check() {
+	[ -e "$log_file" ] || error 'no timer info available'
+
+	if ! is_running "$pid"; then
+		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
+	else
+		printf 'remaining: %02dm%02ds\n' $((time / 60)) $((time % 60))
+	fi
+}
 
 alert() {
 	read -r lines cols <<-EOF
@@ -78,49 +110,10 @@ alert() {
 		break
 	done
 
-	exec 2>/tmp/bat.$$.log # debug
-	echo "alert:" >&2 # debug
-	set -x # debug
-
-	pomo start "$reply"
-}
-
-is_running() {
-	kill -0 "$1"
-} 2>/dev/null
-
-check() {
-	[ -e "$log_file" ] || error 'no timer info available'
-
-	if ! is_running "$pid"; then
-		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
-	else
-		printf 'remaining: %02dm%02ds\n' $((time / 60)) $((time % 60))
-	fi
-}
-
-pause() {
-	kill "$pid" 2>/dev/null
-
-	# `kill` doesn't kill immediately and without this `check` prints
-	# the wrong message.
-	while is_running "$pid"; do
-		:
-	done
-
-	check
-}
-
-stop() {
-	kill "$pid" 2>/dev/null
-	[ -e "$log_file" ] && rm "$log_file"
+	start "$reply"
 }
 
 timer() {
-	exec 2>/tmp/bat.$$.log # debug
-	echo "timer: $0 $@" >&2 # debug
-	set -x # debug
-
 	time="$1" session="$2"
 
 	while [ "$time" -gt 0 ]; do
@@ -129,9 +122,10 @@ timer() {
 		sleep 1
 	done
 
-	stop
+	[ -e "$log_file" ] && rm "$log_file"
 
-	# TODO: Probably a few holes in this.
+	# TODO: Probably a good few holes here. Is there a
+	# terminal-independent way to do this?
 	if [ -n "$STY" ]; then
 		screen -S "$session" -X screen pomo alert
 	elif [ -n "$TMUX" ]; then
@@ -146,10 +140,6 @@ timer() {
 }
 
 start() {
-	exec 2>/tmp/bat.$$.log # debug
-	echo "start: $0 $@" >&2 # debug
-	set -x # debug
-
 	is_running "$pid" && error 'already running'
 
 	# If `time` has already been read from the log file, it will be a
@@ -171,23 +161,20 @@ start() {
 
 	time=$((min * 60 + sec))
 
-	# Save the multiplexer session so the right session is targeted
-	# for the eventual alert.
-	[ -n "$STY" ] && session="$STY"
-	[ -n "$TMUX" ] && session=$(tmux display -pF '#{session_id}')
-
-	# See https://stackoverflow.com/a/20338327
-	#
-	# `(...)` starts a child process.
-	# `&` starts a grandchild process.
-	#
-	# The child process exits almost immediately and the
-	# grandchild process is orphaned.
-	#
-	# TODO: This doesn't work when executed from the 'alert' function, but
-	# it does work when you type 'pomo start'.
-	#( pomo timer "$time" "$session" & )
-	( screen -dmS pomodoro pomo timer "$time" "$session" & )
+	if [ -n "$STY" ]; then
+		session="$STY"
+		screen -dmS pomodoro pomo timer "$time" "$session"
+	elif [ -n "$TMUX" ]; then
+		session=$(tmux display -pF '#{session_id}')
+		tmux new -ds pomodoro pomo timer "$time" "$session"
+	else
+		# TODO: This doesn't work as intended: When called from
+		# the alert function the grandchild process doesn't fork
+		# properly and exits. `setsid` and `nohup` also don't work.
+		#
+		# See https://stackoverflow.com/a/20338327
+		( pomo timer "$time" & )
+	fi
 }
 
 main() {
@@ -202,7 +189,7 @@ main() {
 		pause) pause ;;
 		stop) stop ;;
 		timer) timer "$2" "$3" ;;
-		alert) shift; alert "$@";;
+		alert) alert ;;
 		'') check ;;
 		-h) usage ;;
 		*) ! usage ;;
