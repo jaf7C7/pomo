@@ -3,60 +3,122 @@
 # `pomo`: Simple pomodoro timer
 #
 # Dependencies:
-#	- POSIX `rm`
-#	- POSIX `stty`
-#	- POSIX `sleep`
-#	- `screen` or `tmux`
-#	- `xterm`|`(u)rxvt`|`x-terminal-emulator` (work in progress)
+#	- POSIX utilities `rm` `ps` `stty` `sleep`
+#	- One of: `screen` `tmux` `xterm` `(u)rxvt`
 # Environment:
 #	- TMPDIR
+
+# Open a new file descriptor for error messages, so they don't get lost
+# when debugging with `set -x`.
+exec 3>&2
 
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
 usage() {
-	echo 'usage: pomo [ start <min>[m[<sec>s]] | pause | stop | resume ]'
+	'usage: pomo [ start [<min>[m[<sec>s]]] | pause | stop ]'
 	exit
-} >&2
+} >&3
 
 error() {
 	printf '%s: %s\n' "${0##*/}" "$*"
 	exit 1
-} >&2
+} >&3
 
-is_running() {
-	kill -0 "$1"
+timer_alive() {
+	# `kill -0` has no effect but checks for a valid pid, i.e. an
+	# existing process.
+	kill -0 "$pid"
 } 2>/dev/null
+
+timer_running() {
+	[ -z "$pid" ] && return 1
+
+	# POSIX doesn't specify `ps -o state` unfortunately, hence this
+	# workaround to get the process state.
+	while read -r F S _; do
+		# Skip the line with the headers. 'F S UID PID ...'
+		[ "$F" = 'F' ] && continue
+
+		# R -> Running/runnable
+		# S -> Interruptible sleep (probably sleep(1)ing)
+		case $S in
+			R|S) return 0
+		esac
+
+	done <<-EOF
+		$(ps -lp "$pid")
+	EOF
+
+	return 1
+} 2>/dev/null 
+
+# Lauches a new terminal window with an alert dialog.
+alert_cmd() {
+	_pid=$$
+
+	# Follow the process tree back up until we find an ancestor not
+	# associated with a tty. This will be the terminal emulator itself.
+	until [ "$tty" = '?' ]; do
+		read -r ppid tty cmd <<-EOF
+			$(ps -p "$_pid" -o ppid=,tty=,comm=)
+		EOF
+
+		_pid="$ppid"
+	done
+
+	# TODO: Make this portable/terminal independent. Probably just
+	# `tmux` is the best solution.
+	case $cmd in
+		screen|SCREEN)
+			screen -S "$session" -X screen pomo alert
+		;;
+	
+		tmux*)
+			tmux neww -t "$session" pomo alert
+		;;
+
+		# TODO: Test more terminals.
+		xterm|*rxvt*)
+			"$cmd" -e pomo alert
+		;;
+
+		*)
+			stop
+			error "terminal not supported: $cmd"
+		;;
+	esac
+}
 
 stop() {
 	kill "$pid" 2>/dev/null
+
+	# If the timer is stopped it won't notice the kill signal until
+	# it's started again.
+	kill -s CONT "$pid"
+
 	[ -e "$log_file" ] && rm "$log_file"
 }
 
 pause() {
-	kill "$pid" 2>/dev/null
-
-	# TODO: Is there a better way? This seems clumsy.
-	#
-	# `kill` doesn't kill immediately and without this `check` prints
-	# the wrong message.
-	while is_running "$pid"; do
-		:
-	done
-
+	kill -s STOP "$pid"
 	check
 }
 
 check() {
-	[ -e "$log_file" ] || error 'no timer info available'
+	timer_alive || error 'no timer info available'
 
-	if ! is_running "$pid"; then
-		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
-	else
+	if timer_running; then
 		printf 'remaining: %02dm%02ds\n' $((time / 60)) $((time % 60))
+	else
+		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
 	fi
 }
 
 alert() {
+	trap 'stop; exit 1' INT EXIT
+
+	kill -s STOP "$pid"
+
 	read -r lines cols <<-EOF
 		$(stty size)
 	EOF
@@ -103,55 +165,51 @@ alert() {
 
 	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
 		case "$reply" in
-			[Yy]|[Yy]es|'') reply='25m' ;;
+			[Yy]|[Yy]es|'') unset reply; break ;;
 			[Nn]|[Nn]o) return ;;
 			*[!0-9ms]*) continue ;;
 		esac
-		break
 	done
 
-	start "$reply"
+	get_time "$reply"
+
+	# Update the log file, from which the `timer` process
+	# will read the new starting time.
+	printf '%s %s\n' "$pid" "$time" >"$log_file"
+
+	trap - EXIT
+
+	start
 }
 
 timer() {
-	ps -p "$$" -o pid,ppid,pgid,tty,cmd >/tmp/log # debug
-	exec 2>/tmp/log # debug
-	#set -x # debug
-
+	# `session` is the option multiplexer session to which the
+	# eventual notification will be sent.
 	time="$1" session="$2"
 
-	while [ "$time" -gt 0 ]; do
-		printf '%s %s\n' "$$" "$time" >"$log_file"
-		time=$((time - 1))
-		sleep 1
+	while :; do
+		while [ "$time" -gt 0 ]; do
+			printf '%s %s\n' "$$" "$time" >"$log_file"
+			time=$((time - 1))
+			sleep 1
+		done
+
+		# Reset the timer to 0 once the countdown is finished.
+		printf '%s %s\n' "$$" 0 >"$log_file"
+		
+		alert_cmd
+
+		# The alert function stops the timer, and updates the time
+		# in the log file. If/when the timer resumes it will read
+		# the updated time from the log file and then just start
+		# over again.
+		read -r _ time <"$log_file"
 	done
-
-	[ -e "$log_file" ] && rm "$log_file"
-
-	# TODO: Probably a good few holes here. Is there a
-	# terminal-independent way to do this?
-	if [ -n "$STY" ]; then
-		screen -S "$session" -X screen pomo alert
-	elif [ -n "$TMUX" ]; then
-		tmux neww -t "$session" pomo alert
-	elif command -v xterm >/dev/null 2>&1; then
-		xterm -e pomo alert
-	elif command -v rxvt >/dev/null 2>&1; then
-		rxvt -e pomo alert
-	else
-		x-terminal-emulator -e pomo alert
-	fi 2>/dev/null
 }
 
-start() {
-	is_running "$pid" && error 'already running'
-
-	# If `time` has already been read from the log file, it will be a
-	# number in seconds but without an 's' suffix. This adds the 's'
-	# back if it's missing. Otherwise we get an error below.
-	[ -n "${time##*s}" ] && time="${time}s"
-
-	: "${time:=${1:-25m}}"
+# Parses the 'XmYs' time format and sets the `time` variable.
+get_time() {
+	time="${1:-25m}"
 
 	case $time in
 		*m*s) min="${time%%m*}" sec="${time##*m}" sec="${sec%s}" ;;
@@ -164,55 +222,23 @@ start() {
 	esac
 
 	time=$((min * 60 + sec))
+}
 
-	if [ -n "$STY" ]; then
-		session="$STY"
-		screen -dmS pomodoro pomo timer "$time" "$session"
-	elif [ -n "$TMUX" ]; then
-		session=$(tmux display -pF '#{session_id}')
-		tmux new -ds pomodoro pomo timer "$time" "$session"
-	else
-		# TODO: This doesn't work.
-		#
-		# See:
-		# https://stackoverflow.com/a/20338327
-		# https://stackoverflow.com/a/46621604
-		# https://stackoverflow.com/a/3095624
-		# https://serverfault.com/a/312265
-		# https://serverfault.com/a/311602
-		#
-		# NOTE: Apparently the `double fork` is "wrongheaded"
-		#
-		# See:
-		# https://unix.stackexchange.com/a/194208
-		# https://unix.stackexchange.com/a/177361
-		# https://web.archive.org/web/20160408151852/http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/unix-daemon-design-mistakes-to-avoid.html
-		(
-			exec 2>/tmp/log # debug
-			set -x # debug
-			pomo timer "$time" &
-			read -r _ # debug
-			# NOTE: at this point the timer (grandchild) has PPID
-			# of the child process (this subshell)
-		)
-		# NOTE: at this point the child has exited and the
-		# grandchild is adopted by systemd (PID != 1, see above
-		# links) and has the corresponding PPID of systemd. But
-		# its PGID (group leader) is still that of the calling
-		# terminal (the xterm window where the alert prompt was
-		# displayed)
-	fi
+start() {
+	timer_running && error 'already running'
 
-	# NOTE: At this point there may be two timers running at the same
-	# time. Investigate further!
+	timer_alive && {
+		kill -s CONT "$pid"
+		return
+	}
 
-	echo "calling xterm pid: $$" >/tmp/log # debug
-	read -r _ # debug
-	exit 0 # debug
+	[ -n "$time" ] || get_time "$@"
 
-	# NOTE: After this function returns, the xterm exits, and the
-	# grandchild, whose process group leader has died, also dies. So
-	# its the PGID we need to change.
+	# `(...)` creates a child process, `&` creates a grandchild process.
+	#
+	# The child shell exits and the grandchild is orphaned, and will not
+	# be sent the 'HUP' signal if the grandparent exits.
+	( pomo timer "$time" & )
 }
 
 main() {
