@@ -90,14 +90,14 @@ alert_cmd() {
 }
 
 stop() {
-	kill "$pid" 2>/dev/null
+	kill "$pid"
 
 	# If the timer is stopped it won't notice the kill signal until
 	# it's started again.
 	kill -s CONT "$pid"
 
-	[ -e "$log_file" ] && rm "$log_file"
-}
+	rm "$log_file"
+} 2>/dev/null
 
 pause() {
 	kill -s STOP "$pid"
@@ -108,14 +108,16 @@ check() {
 	timer_alive || error 'no timer info available'
 
 	if timer_running; then
-		printf 'remaining: %02dm%02ds\n' $((time / 60)) $((time % 60))
+		printf '%s' 'remaining: '
 	else
-		printf 'paused: %02dm%02ds\n' $((time / 60)) $((time % 60))
+		printf '%s' 'paused: '
 	fi
+
+	printf '%02dm%02ds\n' $((time / 60)) $((time % 60))
 }
 
 alert() {
-	trap 'stop; exit 1' INT EXIT
+	trap 'stop; exit 1' INT
 
 	kill -s STOP "$pid"
 
@@ -163,11 +165,23 @@ alert() {
 	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c" \
 	""
 
-	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
+	while print '🍅 Start new timer? [Y/n/<time>] '; do
+		read -r "$reply"
+
 		case "$reply" in
-			[Yy]|[Yy]es|'') unset reply; break ;;
-			[Nn]|[Nn]o) return ;;
-			*[!0-9ms]*) continue ;;
+			[Yy]|'')
+				unset reply
+				break
+			;;
+
+			[Nn])
+				stop
+				return
+			;;
+
+			*[!0-9ms]*)
+				continue
+			;;
 		esac
 	done
 
@@ -176,8 +190,6 @@ alert() {
 	# Update the log file, from which the `timer` process
 	# will read the new starting time.
 	printf '%s %s\n' "$pid" "$time" >"$log_file"
-
-	trap - EXIT
 
 	start
 }
