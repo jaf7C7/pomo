@@ -9,12 +9,12 @@
 #	- TMPDIR
 
 # Open a new file descriptor for error messages, so they don't get lost
-# when debugging with `set -x`.
 exec 3>&2
 
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
 usage() {
+	printf '%s\n' \
 	'usage: pomo [ start [<min>[m[<sec>s]]] | pause | stop ]'
 	exit
 } >&3
@@ -28,7 +28,7 @@ timer_alive() {
 	# `kill -0` has no effect but checks for a valid pid, i.e. an
 	# existing process.
 	kill -0 "$pid"
-} 2>/dev/null
+}
 
 timer_running() {
 	[ -z "$pid" ] && return 1
@@ -50,10 +50,28 @@ timer_running() {
 	EOF
 
 	return 1
-} 2>/dev/null 
+}
 
-# Lauches a new terminal window with an alert dialog.
-alert_cmd() {
+# Parses the '<min>m<sec>s' time format and sets the `time` variable.
+get_time() {
+	time="${1:-25m}"
+
+	case $time in
+		*m*s) min="${time%%m*}" sec="${time##*m}" sec="${sec%s}" ;;
+		*m) min="${time%%m*}" ;;
+		*s) sec="${time%s}" ;;
+	esac
+
+	case ${min}${sec} in
+		*[!0-9]*|'') error "bad time format: $time"
+	esac
+
+	time=$((min * 60 + sec))
+}
+
+# Sets the `term` variable. Has to be called outside of the timer process
+# because the timer has no controlling terminal.
+get_term() {
 	_pid=$$
 
 	# Follow the process tree back up until we find an ancestor not
@@ -66,9 +84,13 @@ alert_cmd() {
 		_pid="$ppid"
 	done
 
+	term="$cmd"
+}
+
+alert_cmd() {
 	# TODO: Make this portable/terminal independent. Probably just
 	# `tmux` is the best solution.
-	case $cmd in
+	case $term in
 		screen|SCREEN)
 			screen -S "$session" -X screen pomo alert
 		;;
@@ -79,12 +101,12 @@ alert_cmd() {
 
 		# TODO: Test more terminals.
 		xterm|*rxvt*)
-			"$cmd" -e pomo alert
+			"$term" -e pomo alert
 		;;
 
 		*)
 			stop
-			error "terminal not supported: $cmd"
+			error "terminal not supported: $term"
 		;;
 	esac
 }
@@ -165,13 +187,10 @@ alert() {
 	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c" \
 	""
 
-	while print '🍅 Start new timer? [Y/n/<time>] '; do
-		read -r "$reply"
-
+	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
 		case "$reply" in
 			[Yy]|'')
 				unset reply
-				break
 			;;
 
 			[Nn])
@@ -183,6 +202,8 @@ alert() {
 				continue
 			;;
 		esac
+
+		break
 	done
 
 	get_time "$reply"
@@ -195,9 +216,7 @@ alert() {
 }
 
 timer() {
-	# `session` is the option multiplexer session to which the
-	# eventual notification will be sent.
-	time="$1" session="$2"
+	time="$1" term="$2" session="$3"
 
 	while :; do
 		while [ "$time" -gt 0 ]; do
@@ -219,23 +238,6 @@ timer() {
 	done
 }
 
-# Parses the 'XmYs' time format and sets the `time` variable.
-get_time() {
-	time="${1:-25m}"
-
-	case $time in
-		*m*s) min="${time%%m*}" sec="${time##*m}" sec="${sec%s}" ;;
-		*m) min="${time%%m*}" ;;
-		*s) sec="${time%s}" ;;
-	esac
-
-	case ${min}${sec} in
-		*[!0-9]*|'') error "bad time format: $time"
-	esac
-
-	time=$((min * 60 + sec))
-}
-
 start() {
 	timer_running && error 'already running'
 
@@ -245,17 +247,19 @@ start() {
 	}
 
 	[ -n "$time" ] || get_time "$@"
+	[ -n "$term" ] || get_term
+
+	[ -n "$STY" ] && session="$STY"
+	[ -n "$TMUX" ] && session=$(tmux display -p '#{session_id}')
 
 	# `(...)` creates a child process, `&` creates a grandchild process.
 	#
 	# The child shell exits and the grandchild is orphaned, and will not
 	# be sent the 'HUP' signal if the grandparent exits.
-	( pomo timer "$time" & )
+	( pomo timer "$time" "$term" "$session" & )
 }
 
 main() {
-	[ $# -gt 3 ] && usage
-
 	log_file="$TMPDIR/pomo.log"
 
 	[ -e "$log_file" ] && read -r pid time <"$log_file"
