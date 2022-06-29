@@ -97,24 +97,35 @@ get_term() {
 	# ancestor not associated with a tty. This will be the terminal
 	# emulator itself.
 	until [ "$tty" = '?' ]; do
-		read -r ppid tty cmd <<-EOF
-			$(ps -p "$_pid" -o ppid=,tty=,args=)
+		read -r ppid tty comm <<-EOF
+			$(ps -p "$_pid" -o ppid=,tty=,comm=)
 		EOF
 
 		_pid="$ppid"
 	done
 
-	# TODO: Test more terminals!
+	# TODO: There are inevitably many more terminal emulators than
+	# are listed here. Ideally a terminal-independent way would be
+	# found. Probably just demanding a `tmux` dependency is the best
+	# idea.
 	#
 	# This doesn't always return the correct terminal executable
 	# name. e.g. 'gnome-terminal' -> '/usr/libexec/gnome-terminal-server'
 	# so we need to explicitly handle each known terminal-type:
-	case $cmd in
-		SCREEN)           term='screen' ;;
-		tmux*)            term='tmux' ;;
-		xterm*|*rxvt*)    term="$cmd" ;;
+	case $comm in
+		xterm|rxvt*|screen|mlterm|cool-retro-term|deepin-terminal|\
+		kitty|konsole|lxterminal|pterm|sakura|stterm|terminus|\
+		xfce4-terminal)   term="$comm" ;;
 		*gnome-terminal*) term='gnome-terminal' ;;
-		*)                term="$cmd" ;;
+		*terminator)      term='terminator' ;;
+		*kgx*)            term='kgx' ;;
+		tmux*)            term='tmux' ;;
+		*)
+			# `"$term" -e pomo alert` will still be attempted
+			# on unknown terminal types, just in case, so
+			# don't fail yet.
+			term="$comm"
+		;;
 	esac
 }
 
@@ -193,9 +204,14 @@ alert_cmd() {
 		screen)         screen -S "$session" -X screen pomo alert ;;
 		tmux)           tmux neww -t "$session" pomo alert ;;
 		gnome-terminal) gnome-terminal -- pomo alert ;;
-
-		# Otherwise, assume the terminal supports `-e` option.
+		xfce4-terminal) xfce4-terminal -x pomo alert ;;
+		terminator)     terminator -x pomo alert ;;
+		terminus)       terminus -x -- pomo alert ;;
+		kgx)            kgx -e 'pomo alert' ;;
+		kitty)          kitty pomo alert ;;
 		*)
+			# Otherwise, assume the terminal supports `-e`
+			# option.
 			"$term" -e pomo alert 2>/dev/null || {
 				error "terminal not supported: $term"
 			}
