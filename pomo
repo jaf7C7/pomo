@@ -8,27 +8,41 @@
 # Environment:
 #	- TMPDIR
 
-# Open a new file descriptor for error messages, so they don't get lost
-exec 3>&2
-
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
 usage() {
 	printf '%s\n' \
 	'usage: pomo [ start [<min>[m[<sec>s]]] | pause | stop ]'
 	exit
-} >&3
+} >&2
 
 error() {
+	# Stop timer and delete log file if an error is thrown.
+	stop
 	printf '%s: %s\n' "${0##*/}" "$*"
 	exit 1
-} >&3
+} >&2
+
+pause() {
+	kill -s STOP "$pid"
+	check
+} 2>/dev/null
+
+stop() {
+	kill "$pid"
+
+	# If the timer is stopped it won't notice the kill signal until
+	# it's started again.
+	kill -s CONT "$pid"
+
+	rm "$log_file"
+} 2>/dev/null
 
 timer_alive() {
 	# `kill -0` has no effect but checks for a valid pid, i.e. an
 	# existing process.
 	kill -0 "$pid"
-}
+} 2>/dev/null
 
 timer_running() {
 	[ -z "$pid" ] && return 1
@@ -58,8 +72,8 @@ get_time() {
 
 	case $time in
 		*m*s) min="${time%%m*}" sec="${time##*m}" sec="${sec%s}" ;;
-		*m) min="${time%%m*}" ;;
-		*s) sec="${time%s}" ;;
+		*m)   min="${time%%m*}" ;;
+		*s)   sec="${time%s}" ;;
 	esac
 
 	case ${min}${sec} in
@@ -74,56 +88,65 @@ get_time() {
 get_term() {
 	_pid=$$
 
-	# Follow the process tree back up until we find an ancestor not
-	# associated with a tty. This will be the terminal emulator itself.
+	# Usually, in order to find the name of the terminal emulator, we
+	# only need to check the PPID of the current shell, but the `pomo`
+	# command may be run from several subshells deep (i.e. from inside
+	# `less` or `vi` etc.).
+	# 
+	# The loop follows the process tree back up until we find an
+	# ancestor not associated with a tty. This will be the terminal
+	# emulator itself.
 	until [ "$tty" = '?' ]; do
 		read -r ppid tty cmd <<-EOF
-			$(ps -p "$_pid" -o ppid=,tty=,comm=)
+			$(ps -p "$_pid" -o ppid=,tty=,args=)
 		EOF
 
 		_pid="$ppid"
 	done
 
-	term="$cmd"
-}
-
-alert_cmd() {
-	# TODO: Make this portable/terminal independent. Probably just
-	# `tmux` is the best solution.
-	case $term in
-		screen|SCREEN)
-			screen -S "$session" -X screen pomo alert
-		;;
-	
-		tmux*)
-			tmux neww -t "$session" pomo alert
-		;;
-
-		# TODO: Test more terminals.
-		xterm|*rxvt*)
-			"$term" -e pomo alert
-		;;
-
-		*)
-			stop
-			error "terminal not supported: $term"
-		;;
+	# TODO: Test more terminals!
+	#
+	# This doesn't always return the correct terminal executable
+	# name. e.g. 'gnome-terminal' -> '/usr/libexec/gnome-terminal-server'
+	# so we need to explicitly handle each known terminal-type:
+	case $cmd in
+		SCREEN)           term='screen' ;;
+		tmux*)            term='tmux' ;;
+		xterm*|*rxvt*)    term="$cmd" ;;
+		*gnome-terminal*) term='gnome-terminal' ;;
+		*)                term="$cmd" ;;
 	esac
 }
 
-stop() {
-	kill "$pid"
+timer() {
+	[ $# -gt 1 ] || error "cannot set timer: not enough arguments"
 
-	# If the timer is stopped it won't notice the kill signal until
-	# it's started again.
-	kill -s CONT "$pid"
+	trap 'stop; exit 1' INT
 
-	rm "$log_file"
-} 2>/dev/null
+	time="$1" term="$2" session="$3"
 
-pause() {
-	kill -s STOP "$pid"
-	check
+	while :; do
+		# A kind of 'do-while' loop to ensure that even if the
+		# timer is initialised to '0s' the pid of the timer is still
+		# printed to the log file, so it can be killed by the 
+		# `stop` function. Otherwise `pomo start 0s` results in
+		# an infinite loop.
+		while {
+			printf '%s %s\n' "$$" "$time" >"$log_file"
+			[ "$time" -gt 0 ]
+		} do
+			time=$((time - 1))
+			sleep 1
+		done
+		
+		alert_cmd
+
+		# The alert function stops the timer, and updates the
+		# time in the log file. If/when the timer resumes it will
+		# read the updated time from the log file and then start
+		# over again.
+		read -r _ time <"$log_file"
+	done
 }
 
 check() {
@@ -138,10 +161,52 @@ check() {
 	printf '%02dm%02ds\n' $((time / 60)) $((time % 60))
 }
 
-alert() {
-	trap 'stop; exit 1' INT
+start() {
+	timer_running && error 'already running'
 
-	kill -s STOP "$pid"
+	timer_alive && {
+		kill -s CONT "$pid"
+		return
+	}
+
+	[ -n "$time" ] || get_time "$@"
+	[ -n "$term" ] || get_term
+
+	[ -n "$STY" ] && session="$STY"
+	[ -n "$TMUX" ] && session=$(tmux display -p '#{session_id}')
+
+	# `(...)` creates a child process, `&` creates a grandchild process.
+	#
+	# The child shell exits and the grandchild is orphaned, and will not
+	# be sent the 'HUP' signal if the grandparent exits.
+	#
+	# Variables need to be passed explicitly to the grandchild as
+	# parameters or otherwise exported so they are available in
+	# subshells.
+	( pomo timer "$time" "$term" "$session" & )
+}
+
+alert_cmd() {
+	# TODO: Make this portable/terminal independent. Probably just
+	# `tmux` is the best solution.
+	case $term in
+		screen)         screen -S "$session" -X screen pomo alert ;;
+		tmux)           tmux neww -t "$session" pomo alert ;;
+		gnome-terminal) gnome-terminal -- pomo alert ;;
+
+		# Otherwise, assume the terminal supports `-e` option.
+		*)
+			"$term" -e pomo alert 2>/dev/null || {
+				error "terminal not supported: $term"
+			}
+		;;
+	esac
+}
+
+alert() {
+	kill -s STOP "$pid" 2>/dev/null
+
+	trap 'stop; exit 1' INT
 
 	read -r lines cols <<-EOF
 		$(stty size)
@@ -156,7 +221,8 @@ alert() {
 	print() {
 		for line do
 			# Position cursor and print line.
-			printf '\033[%s;%sH%s' "$y" "$x" "$line"
+			printf '\033[%s;%sH%b' "$y" "$x" "$line"
+
 			y=$((y + 1))
 		done
 	}
@@ -187,7 +253,20 @@ alert() {
 	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c" \
 	""
 
-	while print '🍅 Start new timer? [Y/n/<time>] '; read -r reply; do
+	help() {
+		print \
+		'y)      new 25min timer\n' \
+		'n)      exit\n' \
+		'<time>) custom timer: <min>[m[<sec>s]]\n'
+	}
+
+	prompt='🍅 Start new timer? [Y/n] (? for help)'
+
+	x=$(((cols - ${#prompt}) / 2))
+
+	print "$prompt"
+
+	while print '>> '; read -r reply; do
 		case "$reply" in
 			[Yy]|'')
 				unset reply
@@ -198,7 +277,8 @@ alert() {
 				return
 			;;
 
-			*[!0-9ms]*)
+			\?|*[!0-9ms]*)
+				help
 				continue
 			;;
 		esac
@@ -215,50 +295,6 @@ alert() {
 	start
 }
 
-timer() {
-	time="$1" term="$2" session="$3"
-
-	while :; do
-		while [ "$time" -gt 0 ]; do
-			printf '%s %s\n' "$$" "$time" >"$log_file"
-			time=$((time - 1))
-			sleep 1
-		done
-
-		# Reset the timer to 0 once the countdown is finished.
-		printf '%s %s\n' "$$" 0 >"$log_file"
-		
-		alert_cmd
-
-		# The alert function stops the timer, and updates the time
-		# in the log file. If/when the timer resumes it will read
-		# the updated time from the log file and then just start
-		# over again.
-		read -r _ time <"$log_file"
-	done
-}
-
-start() {
-	timer_running && error 'already running'
-
-	timer_alive && {
-		kill -s CONT "$pid"
-		return
-	}
-
-	[ -n "$time" ] || get_time "$@"
-	[ -n "$term" ] || get_term
-
-	[ -n "$STY" ] && session="$STY"
-	[ -n "$TMUX" ] && session=$(tmux display -p '#{session_id}')
-
-	# `(...)` creates a child process, `&` creates a grandchild process.
-	#
-	# The child shell exits and the grandchild is orphaned, and will not
-	# be sent the 'HUP' signal if the grandparent exits.
-	( pomo timer "$time" "$term" "$session" & )
-}
-
 main() {
 	log_file="$TMPDIR/pomo.log"
 
@@ -267,12 +303,12 @@ main() {
 	case $1 in
 		start) start "$2" ;;
 		pause) pause ;;
-		stop) stop ;;
+		stop)  stop ;;
 		timer) timer "$2" "$3" ;;
 		alert) alert ;;
-		'') check ;;
-		-h) usage ;;
-		*) ! usage ;;
+		'')    check ;;
+		-h)    usage ;;
+		*)     ! usage ;;
 	esac
 }
 
