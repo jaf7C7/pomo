@@ -198,8 +198,7 @@ start() {
 }
 
 alert_cmd() {
-	# TODO: Make this portable/terminal independent. Probably just
-	# `tmux` is the best solution.
+	# TODO: This is a hassle. See TODO on `get_term`.
 	case $term in
 		screen)         screen -S "$session" -X screen pomo alert ;;
 		tmux)           tmux neww -t "$session" pomo alert ;;
