@@ -110,7 +110,7 @@ get_term() {
 	# idea.
 	#
 	# This doesn't always return the correct terminal executable
-	# name. e.g. 'gnome-terminal' -> '/usr/libexec/gnome-terminal-server'
+	# name. e.g. 'gnome-terminal' -> 'gnome-terminal-'
 	# so we need to explicitly handle each known terminal-type:
 	case $comm in
 		xterm|rxvt*|screen|mlterm|cool-retro-term|deepin-terminal|\
