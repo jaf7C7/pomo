@@ -10,7 +10,6 @@
 # Environment:
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
 
-
 usage() {
 	printf '%s\n' \
 	'usage: pomo [ start [<min>[m[<sec>s]]] | pause | stop ]'
@@ -131,7 +130,7 @@ get_term() {
 }
 
 timer() {
-	[ $# -gt 1 ] || error "cannot set timer: not enough arguments"
+	[ $# -gt 2 ] || error "cannot set timer: not enough arguments"
 
 	trap 'stop; exit 1' INT
 
@@ -221,8 +220,6 @@ alert_cmd() {
 }
 
 alert() {
-	kill -s STOP "$pid" 2>/dev/null
-
 	trap 'stop; exit 1' INT
 
 	read -r lines cols <<-EOF
