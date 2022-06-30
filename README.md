@@ -1,15 +1,11 @@
 # `pomo`
 
-## Motivation
+A very simple pomodoro timer, which runs independently of the shell from
+which it's called, so you don't have to keep the terminal window open to
+receive the alert.
 
-While following the [Learning How To Learn][1] on Coursera, the instructors
-recommended the [Pomodoro Technique][2] to help overcome procrastination and
-allow the brain to enter the "diffuse mode" of thinking, which is essential for
-learning and problem-solving.
-
-I wanted a simple pomodoro timer which would integrate well with the terminal,
-as I got tired of setting alarms on my phone/desktop, and would often forget to
-set them at all.
+It detects what terminal/multiplexer you are using and opens the alert
+screen via the same application, so alerts are consistent yet flexible.
 
 ## Goals
 
@@ -20,6 +16,12 @@ set them at all.
    (Ideally will also work on OS X)
 1. Runs independently of the parent process (so if the terminal window is
    closed, the timer still runs, and is still able to alert the user)
+
+## Dependencies
+
+* POSIX utilities: `[` `kill` `printf` `ps` `read` `rm` `sleep` `stty`
+* `tmux` (recommended) or `screen`, or some kind of terminal emulator
+   which supports the `-e <command>` option.
 
 ## TODO:
 
