@@ -1,11 +1,12 @@
 # `pomo`
 
-A very simple [pomodoro][1] timer, which runs independently of the shell from
-which it's called, so you don't have to keep the terminal window open to
-receive the alert.
+A very simple [pomodoro][1] timer, which runs independently of the shell
+from which it's called, so you don't have to keep the terminal window
+open to receive the alert.
 
-It detects what terminal/multiplexer you are using and opens the alert
-screen via the same application, so alerts are consistent yet flexible.
+It detects what terminal emulator/multiplexer you are using and opens
+the alert screen via the same application, so alerts are consistent
+yet flexible.
 
 ## Goals
 
