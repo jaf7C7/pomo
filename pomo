@@ -1,14 +1,15 @@
 #!/bin/sh
-#
+# 
 # `pomo`: Simple pomodoro timer
-#
+# 
 # Dependencies:
-#	- POSIX utilities `rm` `ps` `stty` `sleep`
-#	- One of: `screen` `tmux` `xterm` `(u)rxvt`
+# - POSIX utilities: `[` `kill` `printf` `ps` `read` `rm` `sleep` `stty`
+# - `tmux` (recommended) or `screen`, or some kind of terminal emulator
+#   which supports the `-e <command>` option.
+# 
 # Environment:
-#	- TMPDIR
-
 : "${TMPDIR:=${TMP:=${TEMP:=/tmp}}}"
+
 
 usage() {
 	printf '%s\n' \
@@ -143,7 +144,7 @@ timer() {
 		# `stop` function. Otherwise `pomo start 0s` results in
 		# an infinite loop.
 		while {
-			printf '%s %s\n' "$$" "$time" >"$log_file"
+			printf '%s ' "$$" "$time" "$session" >"$log_file"
 			[ "$time" -gt 0 ]
 		} do
 			time=$((time - 1))
@@ -152,11 +153,13 @@ timer() {
 		
 		alert_cmd
 
-		# The alert function stops the timer, and updates the
-		# time in the log file. If/when the timer resumes it will
-		# read the updated time from the log file and then start
-		# over again.
-		read -r _ time <"$log_file"
+		# Halt execution, pending the 'CONT' signal from the alert
+		# dialog.
+		kill -s STOP $$
+
+		# If/when the timer resumes it will read the updated time
+		# from the log file and then start over again.
+		read -r _ time _ <"$log_file"
 	done
 }
 
@@ -211,9 +214,8 @@ alert_cmd() {
 		*)
 			# Otherwise, assume the terminal supports `-e`
 			# option.
-			"$term" -e pomo alert 2>/dev/null || {
-				error "terminal not supported: $term"
-			}
+			"$term" -e pomo alert 2>/dev/null \
+				|| error "terminal not supported: $term"
 		;;
 	esac
 }
@@ -235,7 +237,16 @@ alert() {
 
 	print() {
 		for line do
-			# Position cursor and print line.
+			# Position cursor and print line; `%b` allows
+			# interpretation of '\<char>' escape sequences in
+			# the string to be printed.
+			# 
+			# This is useful for adding an optional '\n'
+			# (newline) to scroll the screen. Otherwise we
+			# cannot position the cursor below the last line
+			# of the terminal.
+			# 
+			# See the `help` function below for an example.
 			printf '\033[%s;%sH%b' "$y" "$x" "$line"
 
 			y=$((y + 1))
@@ -268,6 +279,8 @@ alert() {
 	"      $r $c   $r $c $r $c   $r $c $r     $c $r $c" \
 	""
 
+	# The trailing '\n' in each line forces the screen to scroll,
+	# otherwise it keeps printing over the last screen line.
 	help() {
 		print \
 		'y)      new 25min timer\n' \
@@ -283,19 +296,9 @@ alert() {
 
 	while print '>> '; read -r reply; do
 		case "$reply" in
-			[Yy]|'')
-				unset reply
-			;;
-
-			[Nn])
-				stop
-				return
-			;;
-
-			\?|*[!0-9ms]*)
-				help
-				continue
-			;;
+			[Yy]|'')       unset reply ;;
+			[Nn])          stop; return ;;
+			\?|*[!0-9ms]*) help; continue ;;
 		esac
 
 		break
@@ -305,7 +308,7 @@ alert() {
 
 	# Update the log file, from which the `timer` process
 	# will read the new starting time.
-	printf '%s %s\n' "$pid" "$time" >"$log_file"
+	printf '%s ' '_' "$time" '_' >"$log_file"
 
 	start
 }
@@ -313,13 +316,13 @@ alert() {
 main() {
 	log_file="$TMPDIR/pomo.log"
 
-	[ -e "$log_file" ] && read -r pid time <"$log_file"
+	[ -e "$log_file" ] && read -r pid time _ <"$log_file"
 
 	case $1 in
-		start) start "$2" ;;
-		pause) pause ;;
+		timer) shift; timer "$@" ;;
+		start) shift; start "$@" ;;
 		stop)  stop ;;
-		timer) timer "$2" "$3" ;;
+		pause) pause ;;
 		alert) alert ;;
 		'')    check ;;
 		-h)    usage ;;
