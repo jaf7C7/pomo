@@ -1,6 +1,6 @@
 # `pomo`
 
-A very simple pomodoro timer, which runs independently of the shell from
+A very simple [pomodoro][1] timer, which runs independently of the shell from
 which it's called, so you don't have to keep the terminal window open to
 receive the alert.
 
@@ -20,7 +20,7 @@ screen via the same application, so alerts are consistent yet flexible.
 ## Dependencies
 
 * POSIX utilities: `[` `kill` `printf` `ps` `read` `rm` `sleep` `stty`
-* `tmux` (recommended) or `screen`, or some kind of terminal emulator
+* `tmux` (recommended) *or* `screen`, *or* some kind of terminal emulator
    which supports the `-e <command>` option.
 
 ## TODO:
@@ -29,7 +29,7 @@ screen via the same application, so alerts are consistent yet flexible.
 
 ## Example usage:
 
-![Pomo basic example usage and alert demo](./media/pomo_ex-1.gif)
+![Pomo example usage and alert demo with GNU screen](./media/pomo_ex-1.gif)
 
 ## Install
 
@@ -63,5 +63,4 @@ ln -s pomo foo/pomo
 
 ```
 
-[1]: https://www.coursera.org/learn/learning-how-to-learn/home/welcome
-[2]: https://en.wikipedia.org/wiki/Pomodoro_Technique
+[1]: https://en.wikipedia.org/wiki/Pomodoro_Technique
