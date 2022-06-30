@@ -292,7 +292,7 @@ alert() {
 	print "$prompt"
 
 	while print '>> '; read -r reply; do
-		case "$reply" in
+		case $reply in
 			[Yy]|'')       unset reply ;;
 			[Nn])          stop; return ;;
 			\?|*[!0-9ms]*) help; continue ;;
