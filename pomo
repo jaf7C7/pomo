@@ -104,7 +104,7 @@ get_term() {
 		_pid="$ppid"
 	done
 
-	# TODO: There are inevitably many more terminal emulators than
+	# !TODO: There are inevitably many more terminal emulators than
 	# are listed here. Ideally a terminal-independent way would be
 	# found. Probably just demanding a `tmux` dependency is the best
 	# idea.
@@ -200,7 +200,7 @@ start() {
 }
 
 alert_cmd() {
-	# TODO: This is a hassle. See TODO on `get_term`.
+	# !TODO: This is a hassle. See TODO on `get_term`.
 	case $term in
 		screen)         screen -S "$session" -X screen pomo alert ;;
 		tmux)           tmux neww -t "$session" pomo alert ;;
