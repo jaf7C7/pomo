@@ -150,7 +150,9 @@ timer() {
 			sleep 1
 		done
 		
-		alert_cmd
+		# Executes asychonously so the timer process can stop itself
+		# before the alert prompt checks the timer status.
+		alert_cmd &
 
 		# Halt execution, pending the 'CONT' signal from the alert
 		# dialog.
